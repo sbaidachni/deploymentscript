@@ -18,5 +18,5 @@ Navigate to the **infra** folder of the repo, and execute the following code fro
 ```bash
 terraform init
 terraform plan
-terraform apply -var="resource_group_name=<your resource group>" -var="resource_group_location=<resource group location>" -var="<storage_account_name=<your storage account name>"
+terraform apply -var="resource_group_name=<your resource group>" -var="resource_group_location=<resource group location>" -var="storage_account_name=<your storage account name>" -var="ai_search_name=<ai search name>"
 ```
