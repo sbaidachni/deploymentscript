@@ -45,27 +45,16 @@ resource "azurerm_storage_account_network_rules" "example" {
 
 resource "azurerm_storage_container" "data" {
   name                  = "data"
-  storage_account_name  = azurerm_storage_account.example.name
+  storage_account_id  = azurerm_storage_account.example.id
   container_access_type = "private"
 }
 
-resource "azurerm_search_service" "ai_search" {
-  name                = var.ai_search_name
+resource "azurerm_container_registry" "acr" {
+  name                = var.acr_name
   resource_group_name = azurerm_resource_group.example.name
   location            = azurerm_resource_group.example.location
-  sku                 = "basic"
-  partition_count     = 1
-  replica_count       = 1
-
-  identity {
-    type = "SystemAssigned"
-  }
-}
-
-resource "azurerm_role_assignment" "ai_search_blob_data_contributor" {
-  scope                = azurerm_storage_account.example.id
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = azurerm_search_service.ai_search.identity[0].principal_id
+  sku                 = "Basic"
+  admin_enabled       = true
 }
 
 resource "azurerm_user_assigned_identity" "script_identity" {
@@ -83,6 +72,21 @@ resource "azurerm_role_assignment" "blob_data_contributor" {
 resource "azurerm_role_assignment" "file_data_privileged_contributor" {
   scope                = azurerm_storage_account.example.id
   role_definition_name = "Storage File Data Privileged Contributor"
+  principal_id         = azurerm_user_assigned_identity.script_identity.principal_id
+}
+
+resource "azurerm_role_assignment" "acr_push" {
+  scope                = azurerm_container_registry.acr.id
+  role_definition_name = "AcrPush"
+  principal_id         = azurerm_user_assigned_identity.script_identity.principal_id
+}
+
+data "azurerm_client_config" "current" {}
+
+# Container Registry Tasks Contributor
+resource "azurerm_role_assignment" "acr_contributor" {
+  scope                = azurerm_container_registry.acr.id
+  role_definition_id   = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/fb382eab-e894-4461-af04-94435c366c3f"
   principal_id         = azurerm_user_assigned_identity.script_identity.principal_id
 }
 
@@ -116,11 +120,15 @@ resource "azapi_resource" "run_python_from_github" {
       }
       scriptContent = <<EOF
         echo "Cloning private GitHub repo..."
-        git clone https://github.com/sbaidachni/deploymentscript.git repo
+        git clone --branch sbaidachni/testacr https://github.com/sbaidachni/deploymentscript.git repo
         cd repo
         cd data
         pip install -r requirements.txt
         python -m upload_data --storage_name $STORAGE_ACCOUNT_NAME --container_name data
+        cd ../.buildcontainer
+        az acr login -n $ACR_NAME --expose-token
+        echo "Hello"
+        az acr build -r $ACR_NAME -t sample/myimage .
         cd ../src/search
         pip install -r requirements.txt
       EOF
@@ -128,6 +136,10 @@ resource "azapi_resource" "run_python_from_github" {
         {
           name = "STORAGE_ACCOUNT_NAME"
           value = "${azurerm_storage_account.example.name}"
+        },
+        {
+          name = "ACR_NAME"
+          value = "${azurerm_container_registry.acr.name}"
         }
       ]  
     }
