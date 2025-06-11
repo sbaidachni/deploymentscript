@@ -3,13 +3,44 @@ resource "azurerm_resource_group" "example" {
   location = var.resource_group_location
 }
 
+resource "azurerm_virtual_network" "main" {
+  name                = "main-vnet"
+  address_space       = ["10.10.0.0/16"]
+  location            = azurerm_resource_group.example.location
+  resource_group_name = azurerm_resource_group.example.name
+}
+
+resource "azurerm_subnet" "main" {
+  name                 = "main-subnet"
+  resource_group_name  = azurerm_resource_group.example.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.10.1.0/24"]
+  service_endpoints    = ["Microsoft.Storage"]
+  delegation {
+    name = "aci-delegation"
+    service_delegation {
+      name = "Microsoft.ContainerInstance/containerGroups"
+      actions = [
+        "Microsoft.Network/virtualNetworks/subnets/action"
+      ]
+    }
+  }
+}
+
 resource "azurerm_storage_account" "example" {
   name                     = var.storage_account_name
   resource_group_name      = azurerm_resource_group.example.name
   location                 = azurerm_resource_group.example.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
-  public_network_access_enabled = true
+}
+
+resource "azurerm_storage_account_network_rules" "example" {
+  storage_account_id = azurerm_storage_account.example.id
+
+  default_action             = "Deny"
+  bypass                     = ["AzureServices"]
+  virtual_network_subnet_ids = [azurerm_subnet.main.id]
 }
 
 resource "azurerm_storage_container" "data" {
@@ -69,13 +100,20 @@ resource "azapi_resource" "run_python_from_github" {
   body = {
     kind = "AzureCLI"
     properties = {
-      storageAccountSettings = {
-        storageAccountName = azurerm_storage_account.example.name
-      }
       azCliVersion = "2.45.0"
       retentionInterval  = "P1D"
       cleanupPreference = "OnSuccess"
       timeout            = "PT15M"
+      storageAccountSettings = {
+        storageAccountName = azurerm_storage_account.example.name
+      }
+      containerSettings = {
+        subnetIds = [
+          {
+            id = "${azurerm_subnet.main.id}"
+          }
+        ]
+      }
       scriptContent = <<EOF
         echo "Cloning private GitHub repo..."
         git clone https://github.com/sbaidachni/deploymentscript.git repo
