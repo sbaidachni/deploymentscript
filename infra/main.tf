@@ -1,7 +1,3 @@
-provider "azurerm" {
-  features {}
-}
-
 resource "azurerm_resource_group" "example" {
   name     = var.resource_group_name
   location = var.resource_group_location
@@ -59,39 +55,43 @@ resource "azurerm_role_assignment" "file_data_privileged_contributor" {
   principal_id         = azurerm_user_assigned_identity.script_identity.principal_id
 }
 
-resource "azurerm_resource_deployment_script_azure_cli" "run_python_from_github" {
+resource "azapi_resource" "run_python_from_github" {
+  type = "Microsoft.Resources/deploymentScripts@2023-08-01"
   name                = "run-python-from-github"
-  resource_group_name = azurerm_resource_group.example.name
   location            = azurerm_resource_group.example.location
+  parent_id           = azurerm_resource_group.example.id
 
   identity {
-    type = "UserAssigned"
-    identity_ids = [
-      azurerm_user_assigned_identity.script_identity.id
-    ]
-  }
-  retention_interval  = "P1D"
-  version = "2.45.0"
- # storage_account {
- #   name = azurerm_storage_account.example.name
- # }
-
-  environment_variable {
-    name = "STORAGE_ACCOUNT_NAME"
-    value = "${azurerm_storage_account.example.name}"
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.script_identity.id]
   }
 
-  script_content = <<EOF
-    echo "Cloning private GitHub repo..."
-    git clone https://github.com/sbaidachni/deploymentscript.git repo
-    cd repo
-    cd data
-    pip install -r requirements.txt
-    python -m upload_data --storage_name $STORAGE_ACCOUNT_NAME --container_name data
-    cd ../src/search
-    pip install -r requirements.txt
-  EOF
-
-  cleanup_preference = "OnSuccess"
-  timeout            = "PT15M"
+  body = {
+    kind = "AzureCLI"
+    properties = {
+      storageAccountSettings = {
+        storageAccountName = azurerm_storage_account.example.name
+      }
+      azCliVersion = "2.45.0"
+      retentionInterval  = "P1D"
+      cleanupPreference = "OnSuccess"
+      timeout            = "PT15M"
+      scriptContent = <<EOF
+        echo "Cloning private GitHub repo..."
+        git clone https://github.com/sbaidachni/deploymentscript.git repo
+        cd repo
+        cd data
+        pip install -r requirements.txt
+        python -m upload_data --storage_name $STORAGE_ACCOUNT_NAME --container_name data
+        cd ../src/search
+        pip install -r requirements.txt
+      EOF
+      environmentVariables = [
+        {
+          name = "STORAGE_ACCOUNT_NAME"
+          value = "${azurerm_storage_account.example.name}"
+        }
+      ]  
+    }
+  }
 }

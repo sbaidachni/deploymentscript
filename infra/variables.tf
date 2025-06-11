@@ -19,4 +19,5 @@ variable "storage_account_name" {
 variable "ai_search_name" {
   description = "The name of the Azure AI Search service."
   type        = string
+  default = "exampleaisearch"
 }
